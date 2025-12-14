@@ -11,4 +11,4 @@ Imports:
     rmarkdown,
     testthat,
     tinytex,
-    renv
+    renv,

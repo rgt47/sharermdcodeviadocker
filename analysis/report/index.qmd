@@ -1,52 +1,189 @@
 ---
-title: 'Simple process for sharing Rmarkdown code via Docker'
-draft: false
-image: "img/Rlogo.jpg"
-date: now
+title: "Sharing R Markdown Code Reproducibly with
+  Docker"
+subtitle: >
+  A practical walkthrough of Dockerizing an R analysis
+  for reliable collaboration
+author: "Ronald G. Thomas"
+date: "2025-06-25"
+categories:
+  [R Programming, Docker, Reproducibility]
+description: >
+  I did not really know how fragile sharing R code
+  could be until my colleague spent an afternoon
+  debugging missing packages, and I realised Docker
+  could have prevented every single error.
+image: "media/images/hero.jpg"
 document-type: "blog"
+draft: true
 execute:
-  message: false
+  echo: true
   warning: false
+  message: false
+format:
+  html:
+    code-fold: false
+    code-tools: false
 ---
 
-::: column-margin
-![](img/Rlogo.jpg)
-:::
+![A shipping container yard representing the
+concept of containerised, portable software
+environments.
+](media/images/hero.jpg){.img-fluid width=80%
+fig-alt="Colourful shipping containers stacked in
+a yard, symbolising Docker containers that package
+software for reliable transport."}
+
+*Just as shipping containers standardised global
+freight, Docker containers standardise software
+delivery.*
 
 # Introduction
 
-Lets assume you have an rmarkdown `Rmd` file, say `peng.Rmd`, that you're written to analyze
-some data. You now want to share the code with a colleague, we'll call him Joe. How to proceed?
+I did not really know how fragile sharing R code
+could be until my colleague -- let us call him Joe
+-- spent an entire afternoon debugging missing
+packages, incompatible R versions, and absent LaTeX
+files, all because I sent him a single `.Rmd` file
+by email. Every error he encountered was something I
+could have prevented by packaging my analysis in a
+Docker container.
 
-The simplest option is simply to send Joe the "rmd" file containing the code
-via the most convenient method (e.g. email/text/slack/discord/github/USB drive
-etc.)
+The experience was instructive because the code ran
+perfectly on my machine. I had the right R version,
+the right packages at the right versions, the right
+LaTeX distribution with the right preamble file, and
+even a custom logo image that the report referenced.
+None of these were available on Joe's Linux Mint
+workstation. Every missing piece produced a
+different, cryptic error message.
 
-The next step will be for the Joe to ( attempt to ) load and run the code.
-Typically he would do this with  either  using `Rstudio.app` to open the
-file and `knit` it,  render it from the command line with the command:
+This post walks through both approaches: the naive
+method of emailing an Rmd file (and watching it
+fail), and the Docker method that eliminates every
+one of those failures. The narrative is based on a
+real collaboration, and the sequence of errors Joe
+encountered is presented in the order they actually
+occurred.
 
-```sh
-> R -e "render('peng.Rmd')"
-```
+## Motivations
 
-Sometimes this approach works, and all is well. Joe can add comments or expand
-the code and reply to you. Frequently, however, this naive process will fail for any number of
-reasons. Ideally to facilitate reproducibility Joe will have as similar
-a computing environment as you, the original  developer. This can be difficult to
-achieve, especially given the dynamic nature of open source software. For example
-Joe may have an outdated version of `R` installed on his
-workstation, or his  `R` environment may be missing a necessary package.
-Additiional potential problems include: the
-required package may be present but its the wrong version, the program may need to
-source an additional file thats missing, or the program load some data that it
-can't find on Joe's machine.
+- I had sent an R Markdown analysis file to a
+  colleague and watched him spend hours debugging
+  environment issues that had nothing to do with
+  the analysis itself.
+- Every error my colleague encountered -- missing R,
+  missing packages, missing LaTeX, missing auxiliary
+  files -- was entirely preventable with proper
+  packaging.
+- I wanted a reproducible method for sharing R
+  analyses that would work regardless of the
+  recipient's operating system, R version, or
+  installed packages.
+- I was aware of Docker conceptually but had never
+  used it specifically for sharing R Markdown
+  analyses, and I wanted a practical, end-to-end
+  example.
+- The experience convinced me that "works on my
+  machine" is not a valid standard for
+  collaborative data science.
 
-All of these problems go away if instead of sending the program as a standalone
-text file you send it as a docker image. In this post we'll walk through the
-process of dockerizing the R code.
+## Objectives
 
-Assume a simple `Rmd` file like this: 
+1. Demonstrate the failure modes of the naive
+   approach to sharing R Markdown code by walking
+   through the sequence of errors a collaborator
+   encounters.
+2. Write a complete Dockerfile that packages an R
+   Markdown analysis with all its dependencies,
+   including R packages, LaTeX, auxiliary files,
+   and data.
+3. Build, push, and pull a Docker image so that a
+   collaborator can render the analysis with a
+   single command.
+4. Document the complete workflow from authoring to
+   collaboration, including volume mounting for
+   output files.
+
+I am documenting my learning process here. If you
+spot errors or have better approaches, please let
+me know.
+
+![A researcher working at a desk with papers and
+a laptop, representing the initial phase of analysis
+development.
+](media/images/ambiance1.jpg){.img-fluid
+fig-alt="A researcher at a desk with scattered
+papers and an open laptop, representing the authoring
+phase of an R Markdown analysis."}
+
+*The analysis begins on one machine, but it needs
+to run on many.*
+
+# Prerequisites and Setup
+
+Before proceeding, you will need:
+
+- **Docker Desktop** installed on your machine
+  (macOS, Windows, or Linux)
+- **R 4.0+** and the `rmarkdown` package installed
+  locally (for authoring)
+- **A Docker Hub account** (free) for pushing and
+  sharing images
+- Basic familiarity with the terminal and R Markdown
+  document structure
+
+If you have never used Docker before, the only
+concept you need is this: a Docker image is a
+snapshot of a complete computing environment
+(operating system, software, files), and a Docker
+container is a running instance of that image. When
+you share an image, the recipient gets an exact
+copy of your environment.
+
+# What is Docker for R Users?
+
+Docker is a tool that packages an application and
+its entire computing environment -- operating
+system libraries, programming language, installed
+packages, configuration files, data -- into a
+single portable unit called an image. When someone
+runs that image, they get a container that behaves
+identically to the environment in which you
+developed your analysis.
+
+Think of it like shipping a complete laboratory
+instead of just a lab notebook. The naive approach
+to sharing code is like sending someone your lab
+notes and hoping they have the same equipment,
+reagents, and room temperature. Docker is like
+shipping the entire lab bench, pre-loaded with
+everything needed to replicate your experiment.
+
+For R users specifically, Docker solves the problem
+of environment divergence. Your R version, your
+installed packages, your LaTeX distribution, your
+auxiliary files, and your data are all captured in
+the image. The recipient does not need to install
+anything except Docker itself.
+
+# Getting Started: The Naive Approach
+
+To understand why Docker matters, it is instructive
+to see what happens when you share R Markdown code
+without it. The following narrative is based on a
+real collaboration.
+
+## The Analysis
+
+Assume you have a simple R Markdown file called
+`peng.Rmd` that analyses the Palmer Penguins
+dataset. The file uses `pacman` for package
+management, `tidyverse` for data manipulation and
+plotting, and `knitr` for output formatting. It
+also references a custom LaTeX preamble file
+(`preamble.tex`) and a logo image (`sudoku.png`)
+for the PDF header.
 
 ````{verbatim}
 
@@ -68,35 +205,62 @@ library(pacman)
 p_load(palmerpenguins, tidyverse, knitr)
 
 opts_chunk$set(
-  warning = FALSE, message = FALSE, echo = FALSE, results = "asis", dev = "pdf"
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  results = "asis",
+  dev = "pdf"
 )
 ```
 
 # Introduction
 
-We can work with the dataset `penguins` included in the package `palmerpenguins`.
+We can work with the dataset `penguins`
+included in the package `palmerpenguins`.
+
 ```{r }
 library(palmerpenguins)
 ```
-One naive approach is to split the dataset and do three separate
-analyses:
+
+One naive approach is to split the dataset
+and do three separate analyses:
 
 ```{r }
 df1 <- split(penguins, penguins$species)
 
 foo <- function(df, z) {
-  df |> ggplot(aes(x = bill_length_mm, y = flipper_length_mm)) +
-    geom_point(aes(color = island), alpha = .5) +
+  df |>
+    ggplot(
+      aes(
+        x = bill_length_mm,
+        y = flipper_length_mm
+      )
+    ) +
+    geom_point(
+      aes(color = island), alpha = .5
+    ) +
     geom_smooth() +
-    scale_color_manual(values = c("purple", "green", "red")) +
+    scale_color_manual(
+      values = c("purple", "green", "red")
+    ) +
     theme_bw() +
     labs(
-      title = paste(z, " Penguin Anatomy Comparison"), x = "Flipper length",
-      y = "Bill length", color = "Island"
+      title = paste(
+        z, " Penguin Anatomy Comparison"
+      ),
+      x = "Flipper length",
+      y = "Bill length",
+      color = "Island"
     )
   plotfile_name <- paste0(z, ".pdf")
   ggsave(plotfile_name)
-  cat(paste0("\\includegraphics[height=3cm]{", plotfile_name, "}"), "\n")
+  cat(
+    paste0(
+      "\\includegraphics[height=3cm]{",
+      plotfile_name, "}"
+    ),
+    "\n"
+  )
   cat("\\vspace{1cm}", "\n")
 }
 
@@ -104,92 +268,161 @@ bar <- df1 |> map2(names(df1), foo)
 ```
 ````
 
-The `Rmd` file runs cleanly on our machine and generates the the report on the
-following page. However, we note that the third plot needs additional
-examination and want to relay the program to our colleague Joe for further
-analyis.
+The file runs cleanly on the author's machine and
+produces a PDF report with three species-specific
+scatter plots comparing bill length and flipper
+length.
 
-![rendered page](img/snag1.png)
+## Sending the File to Joe
 
-# Share program code with Joe. Two approaches, Naive and Docker based. 
+The simplest approach is to email `peng.Rmd` to
+Joe and ask him to render it. Joe has a Linux Mint
+workstation. He downloads the attachment, creates a
+working directory, and attempts to render.
 
+## Error 1: R Not Found
 
-Whats the best way to accomplish this?
-
-We start by simply emailing the file to him (rgthomas4747@gmail.com) and asking
-him to collaborate.
-
-Joe downloads the attachment. Opens a working directory and attempts to run the
-Rmd file 
-
-with the command 
 ```sh
-> R -e "render('peng.Rmd')"
+mkdir peng_collaboration
+cd peng_collaboration
+R -e "render('peng.Rmd')"
 ```
 
-Joe has a linux mint desktop
+Linux cannot find `R`. Joe installs it:
 
 ```sh
-> mkdir peng_collaboration
-> cd peng_collaboration
-> R -e "render('peng.Rmd')"
-```
-Linux can'f find R
-
-Joe can fix this by installing `R`
-```sh
-> sudo apt install r-base-core
+sudo apt install r-base-core
 ```
 
+## Error 2: Function render Not Found
 
-Next `R` can not find the function `render`.
-
-Joe determines that `render` is a function in the package `rmarkdown`
-
-He endeavors to installs  `rmarkdown` with
 ```sh
+R -e "render('peng.Rmd')"
+```
 
+R loads but reports: `could not find function
+"render"`. Joe determines that `render` is a
+function in the `rmarkdown` package and installs it:
+
+```sh
 R -e "install.packages('rmarkdown')"
 ```
 
-This fails due to inadequate permission on the directory
-`/usr/lib/R/library`
+This itself fails due to inadequate permissions on
+`/usr/lib/R/library`. Joe also needs system
+libraries for compilation:
 
 ```sh
-
-sudo apt install libssl-dev libcurl4-openssl-dev unixodbc-dev libxml2-dev\
-libmariadb-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev\
-libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
-
+sudo apt install libssl-dev \
+  libcurl4-openssl-dev unixodbc-dev \
+  libxml2-dev libmariadb-dev \
+  libfontconfig1-dev libharfbuzz-dev \
+  libfribidi-dev libfreetype6-dev \
+  libpng-dev libtiff5-dev libjpeg-dev
 ```
 
-Also latex is not available
+## Error 3: Pandoc Version Too Old
 
-One more try... and the latex engine notes the absence of the file
 ```sh
-~/shr/preamble.tex
+R -e "library(rmarkdown); render('peng.Rmd')"
 ```
 
-So, I need to relay the missing .tex file.
+`pandoc version 1.12.3 or higher required`. Joe
+installs a newer pandoc.
 
-Also the .png (sudoku.png) logo file.
-
-Finally! success.
-
-# Docker approach
-
-Alternatively, consider the "Docker" approach.
-
-Before sending peng.Rmd to Joe we'll dockerize it.
-
-* Prepare a work directory: penguins.
-We want to send Joe a container that has R and all the preliminaries taken care
-of so that all he has to do is
-
-Here is the docker file
+## Error 4: Package pacman Not Found
 
 ```sh
+R -e "library(rmarkdown); render('peng.Rmd')"
+```
 
+`there is no package called 'pacman'`. Joe
+installs it:
+
+```sh
+R -e "install.packages('pacman')"
+```
+
+## Error 5: Missing preamble.tex
+
+```sh
+R -e "library(rmarkdown); render('peng.Rmd')"
+```
+
+`pandoc could not find preamble.tex`. The author
+forgot to send the LaTeX preamble file. The file
+is sent, and the path is adjusted from the macOS
+convention to a Linux path.
+
+Joe also needs `vim` to edit the file:
+
+```sh
+sudo apt install vim
+```
+
+## Error 6: pdflatex Not Found
+
+LaTeX is not installed. Joe installs `tinytex`:
+
+```sh
+R -e "install.packages('tinytex')"
+R -e "tinytex::install_tinytex()"
+```
+
+## Error 7: Missing Logo File
+
+`pandoc error: file sudoku.png not found`. The
+author forgot to send the logo image referenced in
+the preamble. The file is sent and placed in the
+correct directory.
+
+## Error 8: Missing Bibliography File
+
+`error: no bibliography file found`. Yet another
+file the author forgot to include. The bibliography
+is sent and the file path is corrected.
+
+## Error 9: Package Loading Failures
+
+Some packages fail to load via `pacman`. Joe removes
+problematic packages from the script and tries
+again.
+
+## Finally: Success
+
+After eight errors and several hours of debugging,
+Joe successfully renders the report. Every single
+error was caused by a mismatch between the author's
+environment and Joe's environment.
+
+![A pair of hands assembling components into a
+container, representing the process of packaging
+an analysis for reproducibility.
+](media/images/ambiance2.jpg){.img-fluid
+fig-alt="Hands carefully placing items into a
+container, symbolising the methodical process of
+packaging an R analysis into a Docker image."}
+
+*Packaging everything together so no piece is left
+behind.*
+
+# The Docker Approach
+
+The Docker approach eliminates every error in the
+preceding section by packaging the entire
+environment -- R, packages, LaTeX, auxiliary files,
+and data -- into a single image.
+
+## The Dockerfile
+
+The following Dockerfile starts from the
+`rocker/verse` base image (which includes R,
+RStudio, and the tidyverse), installs additional R
+packages, updates the LaTeX distribution, creates a
+non-root user, and copies all necessary files into
+the image.
+
+```dockerfile
 FROM rocker/verse:4
 RUN apt update
 RUN apt install vim -y
@@ -200,64 +433,127 @@ RUN R -e "install.packages('knitr')"
 RUN R -e "install.packages('rmarkdown')"
 RUN tlmgr init-usertree
 RUN tlmgr update --self --all
-RUN  tlmgr install  fancyhdr adjustbox geometry titling
+RUN tlmgr install fancyhdr adjustbox \
+  geometry titling
 
-RUN addgroup --system joe && adduser --system --ingroup joe joe
-RUN chmod -R 0777 '/usr/local/lib/R/site-library'
+RUN addgroup --system joe && \
+  adduser --system --ingroup joe joe
+RUN chmod -R 0777 \
+  '/usr/local/lib/R/site-library'
 RUN chown joe:joe -R /home/joe
 USER joe
 WORKDIR /home/joe
 RUN mkdir -p /home/joe/shr
 RUN mkdir -p /home/joe/output
 COPY /preamble.tex /home/joe/shr
-# COPY /.Rprofile /home/joe/shr
 COPY sudoku.png /home/joe/shr
 COPY peng.Rmd /home/joe/shr
 CMD ["/bin/bash"]
 ```
 
+Key decisions in this Dockerfile:
 
-run docker
+- **`FROM rocker/verse:4`** provides R 4.x with the
+  tidyverse and LaTeX pre-installed, reducing the
+  number of manual installation steps.
+- **Each `RUN` installs a specific package**, making
+  the build cache effective. If you change the Rmd
+  file, only the `COPY` layer is rebuilt.
+- **`tlmgr install`** adds the exact LaTeX packages
+  referenced by `preamble.tex`.
+- **A non-root user (`joe`)** runs the analysis,
+  which is a security best practice.
+- **`COPY` commands** place the preamble, logo, and
+  Rmd file inside the image, so nothing is missing.
+- **`CMD ["/bin/bash"]`** opens an interactive shell,
+  allowing the collaborator to inspect the
+  environment before rendering.
+
+## Building the Image
+
+Build the image with a tag and specify the platform
+for cross-architecture compatibility:
+
 ```sh
-docker build -t rgt47/penguin_review --platform=linux/amd64 .
-docker push rgt47/peng_review
+docker build -t rgt47/penguin_review \
+  --platform=linux/amd64 .
 ```
 
-relay image to Joe
+## Sharing the Image
+
+There are two ways to share the image with Joe.
+
+**Option 1: Docker Hub** (recommended for remote
+collaboration)
 
 ```sh
-docker push rgt47/peng_review
-```
-or
-```sh
-docker save rgt47/peng_review | gzip > peng_review_trans.tgz
-docker load -i peng_review_trans.tgz
-
-```
-
-```sh
-> docker pull rgt47/penguin_review
-
-> droot="$PWD"/output docker run -it --rm --platform linux/x86_64 \
--v $droot:/home/joe/output peng_review
-> cd output
-> library(rmarkdown); render('../shr/peng.Rmd')
-```
-Important to include the association between the /home/joe/output directory in
-the container with the output directory on the local workstation. Thats where
-the results of the analysis will be saved. 
-
-```sh
-> R -e "library(rmarkdown); render('peng.Rmd')"
+docker push rgt47/penguin_review
 ```
 
-and if he wants to edit peng.Rmd
+Joe pulls the image on his machine:
 
 ```sh
-> vim peng.Rmd
+docker pull rgt47/penguin_review
 ```
-```sh
 
+**Option 2: File transfer** (useful for air-gapped
+networks or large images)
+
+```sh
+docker save rgt47/penguin_review \
+  | gzip > penguin_review.tgz
+```
+
+Joe loads the image from the archive:
+
+```sh
+docker load -i penguin_review.tgz
+```
+
+## Running the Container
+
+Joe runs the container with a volume mount that
+connects a local output directory to the container's
+output directory. This is how rendered files are
+extracted from the container.
+
+```sh
+droot="$PWD/output"
+docker run -it --rm \
+  --platform linux/x86_64 \
+  -v "$droot":/home/joe/output \
+  rgt47/penguin_review
+```
+
+Inside the container, Joe navigates to the output
+directory and renders the report:
+
+```sh
+cd output
+R -e "library(rmarkdown); \
+  render('../shr/peng.Rmd')"
+```
+
+The rendered PDF appears in the local `output/`
+directory on Joe's machine. No errors. No missing
+packages. No missing files.
+
+If Joe wants to edit the Rmd file before rendering:
+
+```sh
+vim ../shr/peng.Rmd
+```
+
+Vim is available because it was installed in the
+Dockerfile.
+
+## The LaTeX Preamble
+
+For reference, the `preamble.tex` file that caused
+Error 5 in the naive approach contains the following
+LaTeX customisation for the PDF report header:
+
+```latex
 \usepackage[export]{adjustbox}
 \usepackage{fancyhdr}
 \usepackage{titling}
@@ -266,134 +562,291 @@ and if he wants to edit peng.Rmd
 
 \pretitle{
 \begin{flushright}
-\includegraphics[width=3cm,valign=c]{sudoku.png}\\
+\includegraphics[width=3cm,valign=c]{
+  sudoku.png}\\
 \end{flushright}
 \begin{flushleft} \LARGE }
-\posttitle{\par\end{flushleft}\vskip 0.5em}
-\predate{\begin{flushleft}\large}
-	\postdate{\par\end{flushleft}}
-	\preauthor{\begin{flushleft}\large}
-	\postauthor{\par\end{flushleft}}
-\fancyfoot[L]{\currfilename} %put date in header
-\fancyfoot[R]{\includegraphics[width=.8cm]{sudoku.png}}
-\fancyhead[L]{\today} %put current file in footer
+\posttitle{
+  \par\end{flushleft}\vskip 0.5em}
+\predate{
+  \begin{flushleft}\large}
+\postdate{
+  \par\end{flushleft}}
+\preauthor{
+  \begin{flushleft}\large}
+\postauthor{
+  \par\end{flushleft}}
+\fancyfoot[L]{\currfilename}
+\fancyfoot[R]{
+  \includegraphics[width=.8cm]{sudoku.png}}
+\fancyhead[L]{\today}
 ```
-# REFERENCES
 
+In the Docker image, this file is already in place
+at `/home/joe/shr/preamble.tex`. Joe never needs
+to know it exists.
 
-[Running your R script in Docker](https://www.statworx.com/en/content-hub/blog/running-your-r-script-in-docker/)
+## Things to Watch Out For
 
-# Practice
-Notes. 
+1. **Volume mount paths must be absolute.** The
+   `-v` flag requires an absolute path on the host
+   side. Use `"$PWD/output"` or provide the full
+   path explicitly.
 
-Situation: Mint is loaded and peng1.Rmd is transferred from researcher 1 to /home/z directory. 
+2. **Platform flag matters for Apple Silicon.** If
+   you build on an M1/M2/M3 Mac, the default
+   architecture is `arm64`. Use
+   `--platform=linux/amd64` to ensure the image
+   runs on Intel-based Linux machines.
 
-Try to run the program with command from colleague:
+3. **Image size can be large.** The `rocker/verse`
+   base image is approximately 2 GB. Adding
+   packages increases this further. Consider
+   `rocker/r-ver` for a smaller base if LaTeX is
+   not needed.
 
-> R -e "render('peng1.Rmd')"
+4. **Non-root user permissions.** If the container
+   writes output files as a non-root user, the
+   host directory may need appropriate permissions.
+   The `chmod -R 0777` in the Dockerfile is
+   permissive; in production, use more restrictive
+   permissions.
 
-Result: error message: 
+5. **R package versions are not pinned.** The
+   Dockerfile installs the latest version of each
+   package at build time. For strict
+   reproducibility, use `renv` to pin exact
+   package versions.
 
-Command R not found. 
+![A quiet desk with a closed laptop and a cup of
+coffee, representing the conclusion of a completed
+workflow.
+](media/images/ambiance3.jpg){.img-fluid
+fig-alt="A closed laptop on a tidy desk with a
+cup of coffee, symbolising the satisfaction of a
+reproducible workflow completed."}
 
+*When the analysis runs on the first try, on any
+machine, the work is done.*
 
-So install R.... to fix
+## Lessons Learnt
 
-> sudo apt install r-base-core
-Try again...
+### Conceptual Understanding
 
+- The naive approach to sharing R code fails because
+  it assumes the recipient's environment matches the
+  author's environment. In practice, it never does.
+- Docker eliminates environment divergence by
+  packaging the complete computing context alongside
+  the analysis code.
+- The `rocker` project provides pre-built Docker
+  images for R that include common dependencies,
+  significantly reducing Dockerfile complexity.
+- Volume mounts are the mechanism for extracting
+  output from containers; without them, rendered
+  files exist only inside the ephemeral container.
 
-> R -e "render('peng1.Rmd')"
-Result: R loads but gives error: could not find function "render"
+### Technical Skills
 
-Search google "R render" 
+- Building a Dockerfile for R requires installing
+  both R packages (`install.packages()`) and system
+  libraries (`apt install`) for packages with
+  compiled dependencies.
+- The `rocker/verse` base image includes R, the
+  tidyverse, and a LaTeX distribution, which covers
+  most R Markdown rendering requirements.
+- `docker save` and `docker load` provide an
+  alternative to Docker Hub for sharing images on
+  restricted networks.
+- Creating a non-root user in the Dockerfile is a
+  security best practice that prevents the container
+  from running processes as root.
 
-Result: https://pkgs.rstudio.com/rmarkdown/reference/render.html
+### Gotchas and Pitfalls
 
-Looks like render is a function inside rmarkdown package. 
-so install package 
-R> install.packages("rmarkdown")
+- Forgetting to include auxiliary files (preamble,
+  images, data) in the Dockerfile `COPY` commands
+  is the most common source of build failures.
+- The `--platform` flag is essential for
+  cross-architecture compatibility between Apple
+  Silicon and Intel machines.
+- Large Docker images take significant time to push
+  and pull; minimising unnecessary layers and using
+  `.dockerignore` reduces image size.
+- Running `docker build` without `--no-cache` may
+  use stale cached layers if upstream packages have
+  been updated.
 
-Try again. 
+## Limitations
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
+- Docker Desktop is required on the recipient's
+  machine, which may not be permitted in all
+  organisational environments.
+- The `rocker/verse:4` base image is approximately
+  2 GB, and the final image can exceed 3 GB with
+  additional packages, making it impractical for
+  low-bandwidth sharing.
+- R package versions are not pinned in this
+  Dockerfile; future builds may install different
+  versions, breaking reproducibility over time.
+- The Dockerfile does not use `renv` for package
+  management; integrating `renv` would provide
+  exact version pinning but adds complexity.
+- The non-root user approach requires careful
+  permission management when mounting volumes from
+  the host.
+- This approach does not address R code quality or
+  correctness; Docker ensures environment
+  consistency, not analytical validity.
 
-Result: error. pandoc version 1.12.3 or higher required. 
+## Opportunities for Improvement
 
-Now try to install pandoc
-Try again. 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
-Result: error. there is no called pacman
+1. Integrate `renv` into the Dockerfile to pin
+   exact package versions and ensure long-term
+   reproducibility.
+2. Add a `Makefile` to the image that automates the
+   rendering step, allowing Joe to run
+   `make render` instead of typing the full R
+   command.
+3. Use multi-stage Docker builds to separate the
+   build environment (with compilation tools) from
+   the runtime environment, reducing the final
+   image size.
+4. Add automated testing (e.g., `testthat`) to the
+   Dockerfile so that the analysis is validated
+   during the build process.
+5. Create a `docker-compose.yml` file for complex
+   analyses that require multiple services (e.g.,
+   a database alongside R).
+6. Explore GitHub Actions to automatically build and
+   push the Docker image whenever the analysis code
+   is updated.
 
-so install pacman
-R> install.packages("pacman")
-Try again...
+# Wrapping Up
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
-result: failed pandoc could not find
-/Users/zenn/shr/preamble.tex
+The contrast between the naive approach and the
+Docker approach illustrates a fundamental principle
+of reproducible research: the computing environment
+is part of the analysis. Sending an Rmd file without
+its environment is like publishing a paper without
+its methodology section.
 
-This makes sense we forgot to send the preamble.tex file to researcher 2.
-Lets send it now. Also we need to adjust its location from a macos style file
-name to a linux based one. 
+The naive approach produced eight separate errors,
+each requiring Joe to diagnose, research, and fix a
+dependency issue. The Docker approach produced zero
+errors. Joe pulled the image, mounted an output
+directory, and rendered the report in under a
+minute.
 
-To edit peng1.Rmd we need vim
-> sudo apt install vim
+What I learnt most from this experience is that
+reproducibility is not just about the code. The
+code was correct the entire time. The failures were
+all environmental: wrong R version, missing packages,
+absent files, incompatible LaTeX distributions. Docker
+addresses every one of these failure modes.
 
-Try again
-Result: pandoc error "pdflatex not found" 
-Lets install tinytex. First in R and then in mint
-R> install.packages("tinytex")
-R> tinytex::install_tinytex()
-# to uninstall TinyTeX, run
-# tinytex::uninstall_tinytex()
+Main takeaways:
 
-Try again:
+- The naive approach to sharing R code produced
+  eight distinct environment errors before the
+  analysis could run.
+- Docker eliminates all eight errors by packaging
+  the complete environment into a single image.
+- The `rocker/verse` base image provides R, the
+  tidyverse, and LaTeX, covering most R Markdown
+  rendering requirements.
+- Volume mounts allow the collaborator to extract
+  rendered output from the container to the host
+  machine.
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
-result: 
-pandoc error: file sudoku_apple.pdf not found. 
+# See Also
 
-This makes sense we forgot to send the logo file. Lets send the file and try
-again. 
+**Related posts:**
 
+- "Configure the Command Line for Data Science
+  Development" (terminal and Docker setup)
+- "Setting Up R, Vimtex, and UltiSnips in Vim"
+  (the Vim editing environment used to author the
+  original analysis)
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
-Result: error no bibliography file found.
+**Key resources:**
 
+- [Running your R script in Docker (Statworx)](
+  https://www.statworx.com/en/content-hub/blog/
+  running-your-r-script-in-docker/)
+- [Rocker Project: Docker containers for R](
+  https://rocker-project.org/)
+- [Docker documentation](
+  https://docs.docker.com/)
+- [renv: Project Environments for R](
+  https://rstudio.github.io/renv/)
+- [Reproducible Research with R and Docker
+  (R-bloggers)](
+  https://www.r-bloggers.com/)
 
+# Reproducibility
 
-This makes sense we forgot to send the bib file. Lets send the file and try
-again. Also need to edit the location of bib file. 
+This workflow was developed on macOS with Docker
+Desktop 4.x and R 4.4. The following files
+constitute the complete Docker-based analysis:
 
-Try again: 
+| File | Purpose |
+|------|---------|
+| `peng.Rmd` | R Markdown analysis file |
+| `Dockerfile` | Environment definition |
+| `preamble.tex` | LaTeX header customisation |
+| `sudoku.png` | Logo image for PDF header |
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
+To reproduce the complete workflow:
 
-results: minor error. Some packages weren't loading via pacman. 
+```sh
+# Build the Docker image
+docker build -t rgt47/penguin_review \
+  --platform=linux/amd64 .
 
-Try removing janitor, kableExtra, tidyverse,  readxl
-and add ggplot2. 
+# Run the container with output mount
+mkdir -p output
+docker run -it --rm \
+  --platform linux/x86_64 \
+  -v "$PWD/output":/home/joe/output \
+  rgt47/penguin_review
 
-Try again: 
+# Inside the container:
+cd output
+R -e "library(rmarkdown); \
+  render('../shr/peng.Rmd')"
+```
 
+The rendered PDF will appear in the local `output/`
+directory.
 
-> R -e "library(rmarkdown); render('peng1.Rmd')"
+```{r}
+#| echo: false
+#| eval: false
+sessionInfo()
+```
 
-Success!
+# Let's Connect
 
-## Prerequisites
+- **GitHub:**
+  [rgt47](https://github.com/rgt47)
+- **Twitter/X:**
+  [@rgt47](https://twitter.com/rgt47)
+- **LinkedIn:**
+  [Ronald Glenn Thomas](
+  https://linkedin.com/in/rgthomaslab)
+- **Email:**
+  [rgtlab.org/contact](
+  https://rgtlab.org/contact)
 
-In development
+I would enjoy hearing from you if:
 
-## Step-by-Step Implementation
-
-In development
-
-## Key Takeaways
-
-In development
-
-## Further Reading
-
-In development
+- You spot an error or a better approach to any of
+  the code in this post.
+- You have suggestions for topics you would like to
+  see covered.
+- You want to discuss R programming, data science,
+  or reproducible research.
+- You have questions about anything in this
+  tutorial.
+- You just want to say hello and connect.

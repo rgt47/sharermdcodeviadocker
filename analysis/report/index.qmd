@@ -6,7 +6,7 @@ subtitle: >
   for reliable collaboration
 author: "Ronald G. Thomas"
 date: "2025-06-25"
-categories:
+categories: [r, docker, rmarkdown, reproducibility, containerization]
   [R Programming, Docker, Reproducibility]
 description: >
   I did not really know how fragile sharing R code

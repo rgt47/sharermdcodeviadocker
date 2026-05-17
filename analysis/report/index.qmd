@@ -1,14 +1,15 @@
 ---
-title: "Sharing R Markdown Code Reproducibly with
-  Docker"
+title: "Sharing R Code via Docker: R Markdown Reports
+  and Shiny Applications"
 author: "Ronald 'Ryy' G. Thomas"
-date: "2025-06-25"
-categories: [r, docker, rmarkdown, reproducibility]
+date: "2026-05-17"
+categories: [r, docker, rmarkdown, shiny, reproducibility]
 description: >
   I did not really know how fragile sharing R code
   could be until my colleague spent an afternoon
   debugging missing packages, and I realised Docker
-  could have prevented every single error.
+  could have prevented every single error -- whether
+  the output was a static PDF or a live Shiny app.
 image: "media/images/hero.jpg"
 document-type: "blog"
 draft: false
@@ -16,11 +17,14 @@ execute:
   echo: true
   warning: false
   message: false
+  eval: false
 format:
   html:
     code-fold: false
     code-tools: false
 ---
+
+*2026-05-17 16:55 PDT*
 
 ![A shipping container yard representing the
 concept of containerised, portable software
@@ -32,94 +36,92 @@ software for reliable transport." fig-align="center"}
 
 *Just as shipping containers standardised global
 freight, Docker containers standardise software
-delivery.*
+delivery -- for static analyses and interactive
+applications alike.*
 
 # Introduction
 
 I did not really know how fragile sharing R code
 could be until my colleague -- let us call him Joe
 -- spent an entire afternoon debugging missing
-packages, incompatible R versions, and absent LaTeX
-files, all because I sent him a single `.Rmd` file
-by email. Every error he encountered was something I
-could have prevented by packaging my analysis in a
-Docker container.
+packages, incompatible R versions, and absent files,
+all because I sent him a single `.Rmd` file by
+email. The code ran perfectly on my machine. Joe's
+Linux Mint workstation disagreed on every count.
 
-The experience was instructive because the code ran
-perfectly on my machine. I had the right R version,
-the right packages at the right versions, the right
-LaTeX distribution with the right preamble file, and
-even a custom logo image that the report referenced.
-None of these were available on Joe's Linux Mint
-workstation. Every missing piece produced a
-different, cryptic error message.
+The Shiny case is worse. A static R Markdown report
+requires R, packages, and possibly LaTeX. A Shiny
+application requires all of that plus a running web
+server, reactive dependencies, and often JavaScript
+libraries or database connections. Each additional
+dependency is another opportunity for something to
+break on a collaborator's machine, and the failure
+mode is a blank browser tab with no useful error
+message.
 
-This post walks through both approaches: the naive
-method of emailing an Rmd file (and watching it
-fail), and the Docker method that eliminates every
-one of those failures. The narrative is based on a
-real collaboration, and the sequence of errors Joe
-encountered is presented in the order they actually
-occurred.
+This post covers both cases. The core Docker
+machinery -- Dockerfile authoring, base image
+selection, dependency installation -- is explained
+once and applies to both. The post then presents
+two parallel case studies:
 
-More formally, this post documents the Container layer of the
-Workflow Construct described in
-[post 52](/posts/52-workflow-construct/), with R Markdown as
-the worked example. The Container layer is replaceable across
-runtimes (Docker on the laptop, Apptainer on HPC, Podman as a
-daemonless alternative); its core machinery (Dockerfile
-authoring, base image selection, dependency installation,
-port binding) is the same regardless of what the container
-ultimately serves. This post is the canonical container-layer
-post for the construct;
-[post 33](/posts/33-shareshinycodeviadocker/) is a
-Shiny-specific case study that defers to this post for layer
-fundamentals.
+- **Case A**: Dockerizing an R Markdown report for
+  static PDF output.
+- **Case B**: Dockerizing a Shiny application for
+  interactive browser use.
+
+More formally, this post documents the Container
+layer of the Workflow Construct described in
+[post 52](/posts/52-workflow-construct/). The
+Container layer is replaceable across runtimes
+(Docker on the laptop, Apptainer on HPC, Podman as
+a daemonless alternative); its core machinery is
+the same regardless of what the container ultimately
+serves.
 
 ## Motivations
 
-- I had sent an R Markdown analysis file to a
-  colleague and watched him spend hours debugging
-  environment issues that had nothing to do with
-  the analysis itself.
-- Every error my colleague encountered -- missing R,
-  missing packages, missing LaTeX, missing auxiliary
-  files -- was entirely preventable with proper
-  packaging.
+- I had sent an R Markdown analysis to a colleague
+  and watched him spend hours debugging environment
+  issues that had nothing to do with the analysis
+  itself.
+- I had also sent a Shiny application as a zip file
+  and observed the same pattern: hours resolving
+  package version conflicts and missing system
+  libraries before the app would launch.
+- Every error my colleagues encountered was entirely
+  preventable with proper packaging.
 - I wanted a reproducible method for sharing R
   analyses that would work regardless of the
   recipient's operating system, R version, or
   installed packages.
-- I was aware of Docker conceptually but had never
-  used it specifically for sharing R Markdown
-  analyses, and I wanted a practical, end-to-end
-  example.
-- The experience convinced me that "works on my
-  machine" is not a valid standard for
-  collaborative data science.
+- The experience convinced me that 'works on my
+  machine' is not a valid standard for collaborative
+  data science, and that Docker addresses both the
+  static and interactive output cases.
 
 ## Objectives
 
-1. Demonstrate the failure modes of the naive
-   approach to sharing R Markdown code by walking
-   through the sequence of errors a collaborator
-   encounters.
-2. Write a complete Dockerfile that packages an R
-   Markdown analysis with all its dependencies,
-   including R packages, LaTeX, auxiliary files,
-   and data.
-3. Build, push, and pull a Docker image so that a
-   collaborator can render the analysis with a
-   single command.
+1. Explain the core Docker concepts (image, container,
+   Dockerfile, layer caching, volume mounts, port
+   mapping) that apply to all R containerisation
+   workflows.
+2. Demonstrate the failure modes of naive sharing for
+   both R Markdown and Shiny by walking through the
+   sequence of errors a collaborator encounters.
+3. Write complete Dockerfiles for each case: one for
+   an R Markdown report, one for a Shiny application.
 4. Document the complete workflow from authoring to
-   collaboration, including volume mounting for
-   output files.
+   collaboration, including image sharing options and
+   Shiny-specific concerns (process supervision, port
+   binding, host parameter).
 
 I am documenting my learning process here. If you
 spot errors or have better approaches, please let
 me know.
 
-![](media/images/docker-logo.png){.img-fluid width=30% fig-align="center"}
+![](media/images/docker-logo.png){.img-fluid
+width=30% fig-align="center"}
 
 *The analysis begins on one machine, but it needs
 to run on many.*
@@ -130,20 +132,12 @@ Before proceeding, you will need:
 
 - **Docker Desktop** installed on your machine
   (macOS, Windows, or Linux)
-- **R 4.0+** and the `rmarkdown` package installed
-  locally (for authoring)
+- **R 4.0+** with `rmarkdown` and/or `shiny`
+  installed locally (for authoring)
 - **A Docker Hub account** (free) for pushing and
   sharing images
 - Basic familiarity with the terminal and R Markdown
-  document structure
-
-If you have never used Docker before, the only
-concept you need is this: a Docker image is a
-snapshot of a complete computing environment
-(operating system, software, files), and a Docker
-container is a running instance of that image. When
-you share an image, the recipient gets an exact
-copy of your environment.
+  or Shiny application structure
 
 # What is Docker for R Users?
 
@@ -171,12 +165,49 @@ auxiliary files, and your data are all captured in
 the image. The recipient does not need to install
 anything except Docker itself.
 
-# Getting Started: The Naive Approach
+## Core Concepts
 
-To understand why Docker matters, it is instructive
-to see what happens when you share R Markdown code
-without it. The following narrative is based on a
-real collaboration.
+**Image**: A snapshot of a complete computing
+environment. Images are built from a Dockerfile
+and stored as a series of read-only layers.
+
+**Container**: A running instance of an image.
+Containers are ephemeral by default; data written
+inside a container is lost when it stops unless
+you use a volume mount.
+
+**Dockerfile**: A text file that defines how to
+build an image. Each instruction (`FROM`, `RUN`,
+`COPY`, `CMD`) creates a new layer. Docker caches
+layers, so unchanged instructions do not re-execute
+on subsequent builds.
+
+**Volume mount**: A link between a directory on the
+host machine and a path inside the container. Volume
+mounts allow the container to read host files and
+write output that persists after the container stops.
+
+**Port mapping**: For network services (Shiny
+applications), the container's internal port must
+be mapped to a host port with the `-p` flag, or the
+host machine cannot connect to the running service.
+
+## The Rocker Project
+
+The [Rocker Project](https://rocker-project.org/)
+maintains a family of Docker images for R. The
+relevant images for this post are:
+
+| Image | Contents | Use case |
+|-------|----------|----------|
+| `rocker/r-ver` | Base R only | Lightweight scripts |
+| `rocker/verse` | R + tidyverse + LaTeX | R Markdown PDF |
+| `rocker/shiny` | R + Shiny Server | Shiny applications |
+
+All images accept a version tag (e.g., `rocker/verse:4`)
+to pin the R version.
+
+# Case A: Dockerizing an R Markdown Report
 
 ## The Analysis
 
@@ -277,154 +308,51 @@ produces a PDF report with three species-specific
 scatter plots comparing bill length and flipper
 length.
 
-## Sending the File to Joe
+## The Naive Approach and Its Errors
 
 The simplest approach is to email `peng.Rmd` to
-Joe and ask him to render it. Joe has a Linux Mint
-workstation. He downloads the attachment, creates a
-working directory, and attempts to render.
+Joe and ask him to render it. The following
+sequence of errors occurred in the order presented.
 
-## Error 1: R Not Found
+**Error 1: R Not Found.** Linux cannot find `R`.
+Joe installs `r-base-core` via `apt`.
 
-```sh
-mkdir peng_collaboration
-cd peng_collaboration
-R -e "render('peng.Rmd')"
-```
+**Error 2: Function render Not Found.** R loads
+but `rmarkdown` is missing. The package installation
+fails due to missing system libraries (`libssl-dev`,
+`libcurl4-openssl-dev`, `libxml2-dev`, and others).
 
-Linux cannot find `R`. Joe installs it:
+**Error 3: Pandoc Version Too Old.** The system
+pandoc is below 1.12.3. Joe installs a newer
+version.
 
-```sh
-sudo apt install r-base-core
-```
+**Error 4: Package pacman Not Found.** After
+resolving pandoc, `pacman` is missing.
 
-## Error 2: Function render Not Found
+**Error 5: Missing preamble.tex.** The author
+forgot to send the LaTeX preamble file. The path
+convention also differs between macOS and Linux.
 
-```sh
-R -e "render('peng.Rmd')"
-```
+**Error 6: pdflatex Not Found.** LaTeX is absent.
+Joe installs `tinytex`.
 
-R loads but reports: `could not find function
-"render"`. Joe determines that `render` is a
-function in the `rmarkdown` package and installs it:
+**Error 7: Missing Logo File.** `pandoc error: file
+sudoku.png not found`. The author forgot to send
+the logo image referenced in the preamble.
 
-```sh
-R -e "install.packages('rmarkdown')"
-```
+**Error 8: Missing Bibliography File.** Another
+file the author forgot to include.
 
-This itself fails due to inadequate permissions on
-`/usr/lib/R/library`. Joe also needs system
-libraries for compilation:
-
-```sh
-sudo apt install libssl-dev \
-  libcurl4-openssl-dev unixodbc-dev \
-  libxml2-dev libmariadb-dev \
-  libfontconfig1-dev libharfbuzz-dev \
-  libfribidi-dev libfreetype6-dev \
-  libpng-dev libtiff5-dev libjpeg-dev
-```
-
-## Error 3: Pandoc Version Too Old
-
-```sh
-R -e "library(rmarkdown); render('peng.Rmd')"
-```
-
-`pandoc version 1.12.3 or higher required`. Joe
-installs a newer pandoc.
-
-## Error 4: Package pacman Not Found
-
-```sh
-R -e "library(rmarkdown); render('peng.Rmd')"
-```
-
-`there is no package called 'pacman'`. Joe
-installs it:
-
-```sh
-R -e "install.packages('pacman')"
-```
-
-## Error 5: Missing preamble.tex
-
-```sh
-R -e "library(rmarkdown); render('peng.Rmd')"
-```
-
-`pandoc could not find preamble.tex`. The author
-forgot to send the LaTeX preamble file. The file
-is sent, and the path is adjusted from the macOS
-convention to a Linux path.
-
-Joe also needs `vim` to edit the file:
-
-```sh
-sudo apt install vim
-```
-
-## Error 6: pdflatex Not Found
-
-LaTeX is not installed. Joe installs `tinytex`:
-
-```sh
-R -e "install.packages('tinytex')"
-R -e "tinytex::install_tinytex()"
-```
-
-## Error 7: Missing Logo File
-
-`pandoc error: file sudoku.png not found`. The
-author forgot to send the logo image referenced in
-the preamble. The file is sent and placed in the
-correct directory.
-
-## Error 8: Missing Bibliography File
-
-`error: no bibliography file found`. Yet another
-file the author forgot to include. The bibliography
-is sent and the file path is corrected.
-
-## Error 9: Package Loading Failures
-
-Some packages fail to load via `pacman`. Joe removes
-problematic packages from the script and tries
-again.
-
-## Finally: Success
-
-After eight errors and several hours of debugging,
-Joe successfully renders the report. Every single
-error was caused by a mismatch between the author's
-environment and Joe's environment.
-
-![A pair of hands assembling components into a
-container, representing the process of packaging
-an analysis for reproducibility.
-](media/images/ambiance2.jpg){.img-fluid
-fig-alt="Hands carefully placing items into a
-container, symbolising the methodical process of
-packaging an R analysis into a Docker image."}
-
-*Packaging everything together so no piece is left
-behind.*
-
-# The Docker Approach
-
-The Docker approach eliminates every error in the
-preceding section by packaging the entire
-environment -- R, packages, LaTeX, auxiliary files,
-and data -- into a single image.
+After eight errors and several hours, Joe renders
+the report. Every error was environmental.
 
 ## The Dockerfile
 
-The following Dockerfile starts from the
-`rocker/verse` base image (which includes R,
-RStudio, and the tidyverse), installs additional R
-packages, updates the LaTeX distribution, creates a
-non-root user, and copies all necessary files into
-the image.
+The following Dockerfile starts from
+`rocker/verse:4` (which includes R, tidyverse, and
+LaTeX), installs additional R packages, updates
+the LaTeX distribution, creates a non-root user,
+and copies all necessary files into the image.
 
 ```dockerfile
 FROM rocker/verse:4
@@ -455,37 +383,29 @@ COPY peng.Rmd /home/joe/shr
 CMD ["/bin/bash"]
 ```
 
-Key decisions in this Dockerfile:
+Key decisions:
 
-- **`FROM rocker/verse:4`** provides R 4.x with the
-  tidyverse and LaTeX pre-installed, reducing the
-  number of manual installation steps.
+- **`FROM rocker/verse:4`** provides R 4.x with
+  tidyverse and LaTeX pre-installed.
 - **Each `RUN` installs a specific package**, making
-  the build cache effective. If you change the Rmd
-  file, only the `COPY` layer is rebuilt.
+  layer caching effective. If only the Rmd file
+  changes, only the `COPY` layer rebuilds.
 - **`tlmgr install`** adds the exact LaTeX packages
   referenced by `preamble.tex`.
-- **A non-root user (`joe`)** runs the analysis,
-  which is a security best practice.
+- **A non-root user (`joe`)** runs the analysis as
+  a security best practice.
 - **`COPY` commands** place the preamble, logo, and
   Rmd file inside the image, so nothing is missing.
-- **`CMD ["/bin/bash"]`** opens an interactive shell,
-  allowing the collaborator to inspect the
-  environment before rendering.
 
-## Building the Image
+## Building and Sharing the Image
 
-Build the image with a tag and specify the platform
-for cross-architecture compatibility:
+Build with a tag and platform flag for
+cross-architecture compatibility:
 
 ```sh
 docker build -t rgt47/penguin_review \
   --platform=linux/amd64 .
 ```
-
-## Sharing the Image
-
-There are two ways to share the image with Joe.
 
 **Option 1: Docker Hub** (recommended for remote
 collaboration)
@@ -501,7 +421,7 @@ docker pull rgt47/penguin_review
 ```
 
 **Option 2: File transfer** (useful for air-gapped
-networks or large images)
+networks)
 
 ```sh
 docker save rgt47/penguin_review \
@@ -529,8 +449,7 @@ docker run -it --rm \
   rgt47/penguin_review
 ```
 
-Inside the container, Joe navigates to the output
-directory and renders the report:
+Inside the container, Joe renders the report:
 
 ```sh
 cd output
@@ -539,23 +458,13 @@ R -e "library(rmarkdown); \
 ```
 
 The rendered PDF appears in the local `output/`
-directory on Joe's machine. No errors. No missing
-packages. No missing files.
-
-If Joe wants to edit the Rmd file before rendering:
-
-```sh
-vim ../shr/peng.Rmd
-```
-
-Vim is available because it was installed in the
-Dockerfile.
+directory. No errors. No missing packages. No
+missing files.
 
 ## The LaTeX Preamble
 
 For reference, the `preamble.tex` file that caused
-Error 5 in the naive approach contains the following
-LaTeX customisation for the PDF report header:
+Error 5 in the naive approach:
 
 ```latex
 \usepackage[export]{adjustbox}
@@ -590,37 +499,304 @@ In the Docker image, this file is already in place
 at `/home/joe/shr/preamble.tex`. Joe never needs
 to know it exists.
 
-## Things to Watch Out For
+![A pair of hands assembling components into a
+container, representing the process of packaging
+an analysis for reproducibility.
+](media/images/ambiance2.jpg){.img-fluid
+fig-alt="Hands carefully placing items into a
+container, symbolising the methodical process of
+packaging an R analysis into a Docker image."}
 
-1. **Volume mount paths must be absolute.** The
-   `-v` flag requires an absolute path on the host
-   side. Use `"$PWD/output"` or provide the full
-   path explicitly.
+*Packaging everything together so no piece is left
+behind.*
 
-2. **Platform flag matters for Apple Silicon.** If
-   you build on an M1/M2/M3 Mac, the default
-   architecture is `arm64`. Use
-   `--platform=linux/amd64` to ensure the image
-   runs on Intel-based Linux machines.
+# Case B: Dockerizing a Shiny Application
 
-3. **Image size can be large.** The `rocker/verse`
-   base image is approximately 2 GB. Adding
-   packages increases this further. Consider
-   `rocker/r-ver` for a smaller base if LaTeX is
-   not needed.
+The Shiny case introduces concerns absent from the
+R Markdown case: the container must run a persistent
+web server, bind to a network port accessible from
+the host, and handle multiple concurrent connections.
+The Dockerfile structure is similar, but the base
+image, the `CMD`, and the `docker run` flags differ.
 
-4. **Non-root user permissions.** If the container
-   writes output files as a non-root user, the
-   host directory may need appropriate permissions.
-   The `chmod -R 0777` in the Dockerfile is
-   permissive; in production, use more restrictive
-   permissions.
+## The Application
 
-5. **R package versions are not pinned.** The
-   Dockerfile installs the latest version of each
-   package at build time. For strict
-   reproducibility, use `renv` to pin exact
-   package versions.
+Assume you have a single-file Shiny app (`app.R`)
+that displays an interactive scatter plot of the
+Palmer Penguins dataset.
+
+```{r}
+library(shiny)
+library(ggplot2)
+library(DT)
+library(palmerpenguins)
+
+ui <- fluidPage(
+  titlePanel("Palmer Penguins Explorer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        "species", "Species:",
+        choices = c(
+          "All",
+          unique(
+            as.character(penguins$species)
+          )
+        )
+      ),
+      selectInput(
+        "x_var", "X Variable:",
+        choices = c(
+          "bill_length_mm",
+          "bill_depth_mm",
+          "flipper_length_mm",
+          "body_mass_g"
+        )
+      ),
+      selectInput(
+        "y_var", "Y Variable:",
+        choices = c(
+          "flipper_length_mm",
+          "bill_length_mm",
+          "bill_depth_mm",
+          "body_mass_g"
+        )
+      )
+    ),
+    mainPanel(
+      plotOutput("scatter"),
+      DTOutput("table")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  filtered_data <- reactive({
+    if (input$species == "All") {
+      penguins
+    } else {
+      penguins[
+        penguins$species == input$species,
+      ]
+    }
+  })
+
+  output$scatter <- renderPlot({
+    ggplot(
+      filtered_data(),
+      aes(
+        x = .data[[input$x_var]],
+        y = .data[[input$y_var]],
+        colour = species
+      )
+    ) +
+      geom_point(alpha = 0.7, size = 3) +
+      theme_minimal() +
+      labs(
+        x = input$x_var,
+        y = input$y_var,
+        colour = "Species"
+      )
+  })
+
+  output$table <- renderDT({
+    filtered_data()
+  })
+}
+
+shinyApp(ui, server)
+```
+
+The app runs flawlessly on your machine.
+
+## The Naive Approach and Its Errors
+
+You zip the directory and email it to Joe. The
+following sequence of errors occurred.
+
+**Error 1: Shiny Not Installed.** `there is no
+package called 'shiny'`. Installing it triggers
+compilation of `httpuv` and its system dependencies.
+
+**Error 2: System Libraries Missing.** The `httpuv`
+package fails to compile because `libssl-dev` and
+`libuv1-dev` are absent.
+
+**Error 3: Package DT Not Found.** After installing
+Shiny, the app fails because `DT` is missing.
+
+**Error 4: palmerpenguins Not Found.** The data
+package is missing.
+
+**Error 5: Port Already in Use.** Another service
+occupies port 3838. Joe must identify and stop the
+conflicting process.
+
+**Error 6: Version Incompatibility.** Joe's R
+version is 4.1; the app uses `.data[[]]` syntax
+from `rlang` 1.0+, which requires a newer `ggplot2`
+than what installed against R 4.1.
+
+After six errors and several hours, Joe has a
+running application. Every error was environmental.
+
+## The Dockerfile
+
+The following Dockerfile starts from
+`rocker/shiny:4`, which includes R and Shiny Server
+pre-installed.
+
+```dockerfile
+FROM rocker/shiny:4
+
+RUN apt-get update && apt-get install -y \
+  libssl-dev \
+  libcurl4-openssl-dev \
+  libuv1-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN R -e "install.packages(c( \
+  'ggplot2', \
+  'DT', \
+  'palmerpenguins', \
+  'rlang' \
+  ), repos = 'https://cran.r-project.org')"
+
+RUN rm -rf /srv/shiny-server/*
+
+COPY app.R /srv/shiny-server/app.R
+
+EXPOSE 3838
+
+CMD ["/usr/bin/shiny-server"]
+```
+
+Key decisions:
+
+- **`FROM rocker/shiny:4`** provides R 4.x with
+  Shiny Server pre-installed, eliminating manual
+  web server configuration.
+- **System libraries** are installed before R
+  packages to ensure compilation of binary
+  dependencies (`httpuv`, `openssl`).
+- **`rm -rf /srv/shiny-server/*`** removes default
+  sample apps, leaving only your application.
+- **`EXPOSE 3838`** documents the port that Shiny
+  Server listens on (it does not publish the port;
+  that requires `-p` at runtime).
+- **`CMD`** starts Shiny Server when the container
+  launches, so Joe does not need to type any
+  commands inside the container.
+
+## Alternative: Single-File Approach
+
+For simpler applications, you can bypass Shiny
+Server and run the app directly with `Rscript`.
+This uses the smaller `rocker/r-ver` base image.
+
+```dockerfile
+FROM rocker/r-ver:4
+
+RUN R -e "install.packages(c( \
+  'shiny', \
+  'ggplot2', \
+  'DT', \
+  'palmerpenguins' \
+  ), repos = 'https://cran.r-project.org')"
+
+COPY app.R /app/app.R
+
+EXPOSE 3838
+
+CMD ["Rscript", "-e", \
+  "shiny::runApp('/app/app.R', \
+  host='0.0.0.0', port=3838)"]
+```
+
+The trade-off is the loss of Shiny Server features
+(logging, process management, multi-app serving),
+but for single-app containers it is often
+sufficient and produces a smaller image.
+
+## Building and Sharing the Image
+
+Build with a tag:
+
+```sh
+docker build -t rgt47/penguins-shiny \
+  --platform=linux/amd64 .
+```
+
+**Option 1: Docker Hub**
+
+```sh
+docker push rgt47/penguins-shiny
+```
+
+Joe pulls the image:
+
+```sh
+docker pull rgt47/penguins-shiny
+```
+
+**Option 2: File transfer**
+
+```sh
+docker save rgt47/penguins-shiny \
+  | gzip > penguins-shiny.tgz
+```
+
+Joe loads the image:
+
+```sh
+docker load -i penguins-shiny.tgz
+```
+
+## Running the Container
+
+Joe runs the container with port mapping:
+
+```sh
+docker run -d --rm \
+  -p 3838:3838 \
+  --name penguins-app \
+  rgt47/penguins-shiny
+```
+
+He opens a browser to `http://localhost:3838` and
+the application is running. No errors. No missing
+packages. No port conflicts.
+
+To stop the application:
+
+```sh
+docker stop penguins-app
+```
+
+## Shiny-Specific: Process Supervision and
+## Multi-User Deployment
+
+The `rocker/shiny` image runs the open-source
+edition of Shiny Server, which does not efficiently
+handle many concurrent users. For production
+deployments with authentication and per-user
+container isolation, consider
+[ShinyProxy](https://www.shinyproxy.io/). ShinyProxy
+acts as a reverse proxy and launches a fresh
+container for each authenticated user, providing
+isolation without requiring Shiny Server Pro.
+
+For applications requiring persistent user uploads
+or database writes, mount a host directory to the
+container:
+
+```sh
+docker run -d --rm \
+  -p 3838:3838 \
+  -v "$PWD/uploads":/srv/shiny-server/uploads \
+  --name penguins-app \
+  rgt47/penguins-shiny
+```
 
 ![A quiet desk with a closed laptop and a cup of
 coffee, representing the conclusion of a completed
@@ -633,135 +809,246 @@ reproducible workflow completed."}
 *When the analysis runs on the first try, on any
 machine, the work is done.*
 
-## Lessons Learnt
+# Things to Watch Out For
 
-### Conceptual Understanding
+1. **Volume mount paths must be absolute.** The
+   `-v` flag requires an absolute path on the host
+   side. Use `"$PWD/output"` or provide the full
+   path explicitly.
+
+2. **Platform flag matters for Apple Silicon.** If
+   you build on an M1/M2/M3 Mac, the default
+   architecture is `arm64`. Use
+   `--platform=linux/amd64` to ensure the image
+   runs on Intel-based Linux machines.
+
+3. **The `host` parameter must be `'0.0.0.0'` for
+   Shiny.** By default, `shiny::runApp()` binds to
+   `127.0.0.1`, which is only accessible inside the
+   container. This is the most common reason a
+   Dockerized Shiny app appears to start but shows
+   a blank page.
+
+4. **`EXPOSE` does not publish the port.** The
+   `EXPOSE` instruction in a Dockerfile is
+   documentation only. The `-p` flag at runtime is
+   what makes the port reachable from the host.
+
+5. **Image size can be large.** The `rocker/verse`
+   base image is approximately 2 GB; `rocker/shiny`
+   is approximately 1.5 GB. Adding packages increases
+   this further. Use `rocker/r-ver` for a smaller
+   base when the full tidyverse or LaTeX is not
+   required.
+
+6. **R package versions are not pinned.** The
+   Dockerfiles above install the latest version of
+   each package at build time. For strict
+   reproducibility, use `renv` to pin exact package
+   versions and restore from `renv.lock` inside the
+   Dockerfile.
+
+7. **Non-root user permissions.** If the container
+   writes output files as a non-root user, the host
+   directory may need appropriate permissions. The
+   `chmod -R 0777` in the Case A Dockerfile is
+   permissive; in production, use more restrictive
+   permissions.
+
+# Daily Workflow
+
+| Task | Command |
+|------|---------|
+| Build image (R Markdown) | `docker build -t rgt47/penguin_review --platform=linux/amd64 .` |
+| Build image (Shiny) | `docker build -t rgt47/penguins-shiny --platform=linux/amd64 .` |
+| Push to Docker Hub | `docker push rgt47/<image-name>` |
+| Save image to file | `docker save rgt47/<image-name> \| gzip > image.tgz` |
+| Load image from file | `docker load -i image.tgz` |
+| Run R Markdown container | `docker run -it --rm -v "$PWD/output":/home/joe/output rgt47/penguin_review` |
+| Run Shiny container | `docker run -d --rm -p 3838:3838 --name penguins-app rgt47/penguins-shiny` |
+| View Shiny logs | `docker logs penguins-app` |
+| Stop Shiny container | `docker stop penguins-app` |
+| List running containers | `docker ps` |
+| Remove stopped containers | `docker container prune` |
+
+# Uninstall / Rollback
+
+To remove a specific image:
+
+```sh
+docker rmi rgt47/penguin_review
+docker rmi rgt47/penguins-shiny
+```
+
+To remove all stopped containers and dangling
+images (reclaim disk space):
+
+```sh
+docker system prune
+```
+
+To remove all unused images (not just dangling):
+
+```sh
+docker system prune -a
+```
+
+Docker Desktop can be uninstalled via the
+application's settings menu on macOS and Windows.
+On Linux, remove the `docker-ce` package via the
+system package manager. Uninstalling Docker does
+not affect files outside the Docker storage
+directory (typically `/var/lib/docker`).
+
+# Lessons Learnt
+
+## Conceptual Understanding
 
 - The naive approach to sharing R code fails because
   it assumes the recipient's environment matches the
   author's environment. In practice, it never does.
 - Docker eliminates environment divergence by
   packaging the complete computing context alongside
-  the analysis code.
+  the analysis code, whether that code produces a
+  static file or a live web application.
 - The `rocker` project provides pre-built Docker
   images for R that include common dependencies,
   significantly reducing Dockerfile complexity.
 - Volume mounts are the mechanism for extracting
-  output from containers; without them, rendered
-  files exist only inside the ephemeral container.
+  output from containers; port mapping is the
+  mechanism for connecting a container's network
+  service to the host machine's browser.
 
-### Technical Skills
+## Technical Skills
 
 - Building a Dockerfile for R requires installing
   both R packages (`install.packages()`) and system
   libraries (`apt install`) for packages with
   compiled dependencies.
-- The `rocker/verse` base image includes R, the
-  tidyverse, and a LaTeX distribution, which covers
-  most R Markdown rendering requirements.
+- The `rocker/verse` base image covers most R
+  Markdown rendering requirements; `rocker/shiny`
+  covers Shiny Server deployments; `rocker/r-ver`
+  is the smallest base for scripts that do not
+  need the full tidyverse or LaTeX.
 - `docker save` and `docker load` provide an
   alternative to Docker Hub for sharing images on
   restricted networks.
-- Creating a non-root user in the Dockerfile is a
-  security best practice that prevents the container
-  from running processes as root.
+- `docker run -d` starts a container in detached
+  mode, which is appropriate for long-running
+  server applications like Shiny.
 
-### Gotchas and Pitfalls
+## Gotchas and Pitfalls
 
 - Forgetting to include auxiliary files (preamble,
   images, data) in the Dockerfile `COPY` commands
-  is the most common source of build failures.
+  is the most common source of R Markdown build
+  failures.
+- Forgetting to set `host='0.0.0.0'` is the most
+  common reason a Dockerized Shiny app appears to
+  start but shows a blank page.
 - The `--platform` flag is essential for
   cross-architecture compatibility between Apple
   Silicon and Intel machines.
-- Large Docker images take significant time to push
-  and pull; minimising unnecessary layers and using
-  `.dockerignore` reduces image size.
 - Running `docker build` without `--no-cache` may
   use stale cached layers if upstream packages have
-  been updated.
+  been updated; add `--no-cache` when you need a
+  fully fresh build.
 
-## Limitations
+# Limitations
 
 - Docker Desktop is required on the recipient's
   machine, which may not be permitted in all
   organisational environments.
-- The `rocker/verse:4` base image is approximately
-  2 GB, and the final image can exceed 3 GB with
-  additional packages, making it impractical for
-  low-bandwidth sharing.
-- R package versions are not pinned in this
-  Dockerfile; future builds may install different
+- Base images are large (1.5 to 2 GB before adding
+  packages), making image sharing impractical on
+  low-bandwidth connections.
+- R package versions are not pinned in these
+  Dockerfiles; future builds may install different
   versions, breaking reproducibility over time.
-- The Dockerfile does not use `renv` for package
-  management; integrating `renv` would provide
-  exact version pinning but adds complexity.
-- The non-root user approach requires careful
-  permission management when mounting volumes from
-  the host.
-- This approach does not address R code quality or
-  correctness; Docker ensures environment
-  consistency, not analytical validity.
+  Integrating `renv` addresses this but adds
+  complexity.
+- The Case B Dockerfile does not address
+  authentication or access control; the Shiny app
+  is accessible to anyone who can reach the mapped
+  port.
+- Shiny Server (open-source edition) does not
+  efficiently handle many concurrent users. For
+  production multi-user deployments, ShinyProxy or
+  Shiny Server Pro is required.
+- Neither Dockerfile includes a health check;
+  orchestration tools (Kubernetes, Docker Compose)
+  cannot verify the container is actually responding
+  without one.
+- Docker ensures environment consistency, not
+  analytical validity. Code correctness is a
+  separate concern.
 
-## Opportunities for Improvement
+# Opportunities for Improvement
 
-1. Integrate `renv` into the Dockerfile to pin
+1. Integrate `renv` into both Dockerfiles to pin
    exact package versions and ensure long-term
    reproducibility.
-2. Add a `Makefile` to the image that automates the
-   rendering step, allowing Joe to run
-   `make render` instead of typing the full R
+2. Add a `Makefile` to the R Markdown image that
+   automates the rendering step, allowing Joe to
+   run `make render` instead of typing the full R
    command.
 3. Use multi-stage Docker builds to separate the
    build environment (with compilation tools) from
    the runtime environment, reducing the final
    image size.
-4. Add automated testing (e.g., `testthat`) to the
-   Dockerfile so that the analysis is validated
-   during the build process.
-5. Create a `docker-compose.yml` file for complex
-   analyses that require multiple services (e.g.,
-   a database alongside R).
-6. Explore GitHub Actions to automatically build and
-   push the Docker image whenever the analysis code
-   is updated.
+4. Add a `docker-compose.yml` for analyses that
+   require additional services (e.g., a PostgreSQL
+   database alongside R or Shiny).
+5. Implement ShinyProxy for multi-user Shiny
+   deployments with authentication and per-user
+   container isolation.
+6. Add a `HEALTHCHECK` instruction to the Shiny
+   Dockerfile (`HEALTHCHECK CMD curl -f
+   http://localhost:3838 || exit 1`) for container
+   orchestration.
+7. Explore GitHub Actions to automatically build and
+   push Docker images whenever the analysis or
+   application code is updated.
 
 # Wrapping Up
 
 The contrast between the naive approach and the
 Docker approach illustrates a fundamental principle
 of reproducible research: the computing environment
-is part of the analysis. Sending an Rmd file without
-its environment is like publishing a paper without
-its methodology section.
+is part of the analysis. Sending an Rmd file or a
+Shiny application without its environment is like
+publishing a paper without its methodology section.
 
-The naive approach produced eight separate errors,
-each requiring Joe to diagnose, research, and fix a
+The naive approach produced eight separate errors
+for the R Markdown case and six for the Shiny case,
+each requiring Joe to diagnose and resolve a
 dependency issue. The Docker approach produced zero
-errors. Joe pulled the image, mounted an output
-directory, and rendered the report in under a
-minute.
+errors in either case. Joe pulled the image, ran a
+single command, and either opened a rendered PDF
+in his `output/` directory or a working application
+in his browser.
 
-What I learnt most from this experience is that
-reproducibility is not just about the code. The
-code was correct the entire time. The failures were
-all environmental: wrong R version, missing packages,
-absent files, incompatible LaTeX distributions. Docker
-addresses every one of these failure modes.
+The Shiny case makes the stakes clearer: a missing
+dependency in a static analysis produces a clear
+error message. A missing dependency in a Shiny app
+produces a blank browser tab. Docker addresses both
+failure modes by fixing the entire stack at build
+time.
 
 Main takeaways:
 
-- The naive approach to sharing R code produced
-  eight distinct environment errors before the
-  analysis could run.
-- Docker eliminates all eight errors by packaging
-  the complete environment into a single image.
-- The `rocker/verse` base image provides R, the
-  tidyverse, and LaTeX, covering most R Markdown
-  rendering requirements.
-- Volume mounts allow the collaborator to extract
-  rendered output from the container to the host
-  machine.
+- The naive approach produced eight distinct
+  environment errors for R Markdown and six for
+  Shiny before the output could be obtained.
+- Docker eliminates all errors by packaging the
+  complete environment into a single image.
+- Case A uses `rocker/verse` (R + tidyverse +
+  LaTeX) with volume mounts for PDF output.
+- Case B uses `rocker/shiny` (R + Shiny Server)
+  with port mapping for browser access.
+- The `host='0.0.0.0'` parameter and the `-p` flag
+  are the two settings most commonly missed when
+  Dockerizing Shiny applications.
 
 # See Also
 
@@ -780,19 +1067,23 @@ Main takeaways:
   running-your-r-script-in-docker/)
 - [Rocker Project: Docker containers for R](
   https://rocker-project.org/)
+- [rocker/shiny Docker image](
+  https://hub.docker.com/r/rocker/shiny)
+- [Shiny Server documentation](
+  https://docs.posit.co/shiny-server/)
+- [ShinyProxy: open-source Shiny deployment](
+  https://www.shinyproxy.io/)
 - [Docker documentation](
   https://docs.docker.com/)
 - [renv: Project Environments for R](
   https://rstudio.github.io/renv/)
-- [Reproducible Research with R and Docker
-  (R-bloggers)](
-  https://www.r-bloggers.com/)
 
 # Reproducibility
 
 This workflow was developed on macOS with Docker
-Desktop 4.x and R 4.4. The following files
-constitute the complete Docker-based analysis:
+Desktop 4.x, R 4.4, and Shiny 1.8.
+
+**Case A files:**
 
 | File | Purpose |
 |------|---------|
@@ -801,14 +1092,19 @@ constitute the complete Docker-based analysis:
 | `preamble.tex` | LaTeX header customisation |
 | `sudoku.png` | Logo image for PDF header |
 
-To reproduce the complete workflow:
+**Case B files:**
+
+| File | Purpose |
+|------|---------|
+| `app.R` | Shiny application code |
+| `Dockerfile` | Environment definition |
+
+To reproduce Case A:
 
 ```sh
-# Build the Docker image
 docker build -t rgt47/penguin_review \
   --platform=linux/amd64 .
 
-# Run the container with output mount
 mkdir -p output
 docker run -it --rm \
   --platform linux/x86_64 \
@@ -816,13 +1112,25 @@ docker run -it --rm \
   rgt47/penguin_review
 
 # Inside the container:
-cd output
-R -e "library(rmarkdown); \
-  render('../shr/peng.Rmd')"
+# cd output
+# R -e "library(rmarkdown); render('../shr/peng.Rmd')"
 ```
 
-The rendered PDF will appear in the local `output/`
-directory.
+To reproduce Case B:
+
+```sh
+docker build -t rgt47/penguins-shiny \
+  --platform=linux/amd64 .
+
+docker run -d --rm \
+  -p 3838:3838 \
+  --name penguins-app \
+  rgt47/penguins-shiny
+
+# Open browser to http://localhost:3838
+
+docker stop penguins-app
+```
 
 ```{r}
 #| echo: false

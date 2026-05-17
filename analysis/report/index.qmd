@@ -1,9 +1,6 @@
 ---
 title: "Sharing R Markdown Code Reproducibly with
   Docker"
-subtitle: >
-  A practical walkthrough of Dockerizing an R analysis
-  for reliable collaboration
 author: "Ronald 'Ryy' G. Thomas"
 date: "2025-06-25"
 categories: [r, docker, rmarkdown, reproducibility]
@@ -31,7 +28,7 @@ environments.
 ](media/images/hero.jpg){.img-fluid width=80%
 fig-alt="Colourful shipping containers stacked in
 a yard, symbolising Docker containers that package
-software for reliable transport."}
+software for reliable transport." fig-align="center"}
 
 *Just as shipping containers standardised global
 freight, Docker containers standardise software

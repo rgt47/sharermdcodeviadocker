@@ -26,13 +26,7 @@ format:
 
 *2026-05-17 16:55 PDT*
 
-![A shipping container yard representing the
-concept of containerised, portable software
-environments.
-](media/images/hero.jpg){.img-fluid width=80%
-fig-alt="Colourful shipping containers stacked in
-a yard, symbolising Docker containers that package
-software for reliable transport." fig-align="center"}
+![  ](media/images/hero.jpg){.img-fluid width=80% fig-align="center"}
 
 *Just as shipping containers standardised global
 freight, Docker containers standardise software
@@ -1162,3 +1156,8 @@ I would enjoy hearing from you if:
 - You have questions about anything in this
   tutorial.
 - You just want to say hello and connect.
+
+---
+
+*Rendered on 2026-05-17 at 17:08 PDT.*<br>
+*Source: ~/prj/qblog/posts/32-sharermdcodeviadocker/sharermdcodeviadocker/analysis/report/index.qmd*

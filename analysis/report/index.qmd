@@ -30,14 +30,14 @@ format:
 
 *Just as shipping containers standardised global
 freight, Docker containers standardise software
-delivery -- for static analyses and interactive
+delivery: for static analyses and interactive
 applications alike.*
 
 # Introduction
 
 I did not really know how fragile sharing R code
-could be until my colleague -- let us call him Joe
--- spent an entire afternoon debugging missing
+could be until my colleague (let us call him Joe)
+spent an entire afternoon debugging missing
 packages, incompatible R versions, and absent files,
 all because I sent him a single `.Rmd` file by
 email. The code ran perfectly on my machine. Joe's
@@ -53,19 +53,19 @@ break on a collaborator's machine, and the failure
 mode is a blank browser tab with no useful error
 message.
 
-This post covers both cases. The core Docker
-machinery -- Dockerfile authoring, base image
-selection, dependency installation -- is explained
-once and applies to both. The post then presents
-two parallel case studies:
+We cover both cases. The core Docker machinery
+(Dockerfile authoring, base image selection,
+dependency installation) is explained once and
+applies to both. The post then presents two
+parallel case studies:
 
 - **Case A**: Dockerizing an R Markdown report for
   static PDF output.
 - **Case B**: Dockerizing a Shiny application for
   interactive browser use.
 
-More formally, this post documents the Container
-layer of the Workflow Construct described in
+More formally, we document the Container layer of
+the Workflow Construct described in
 [post 52](/posts/52-workflow-construct/). The
 Container layer is replaceable across runtimes
 (Docker on the laptop, Apptainer on HPC, Podman as
@@ -122,9 +122,9 @@ to run on many.*
 
 # Prerequisites and Setup
 
-Before proceeding, you will need:
+Before proceeding, the following are required:
 
-- **Docker Desktop** installed on your machine
+- **Docker Desktop** installed on the workstation
   (macOS, Windows, or Linux)
 - **R 4.0+** with `rmarkdown` and/or `shiny`
   installed locally (for authoring)
@@ -136,28 +136,28 @@ Before proceeding, you will need:
 # What is Docker for R Users?
 
 Docker is a tool that packages an application and
-its entire computing environment -- operating
+its entire computing environment (operating
 system libraries, programming language, installed
-packages, configuration files, data -- into a
+packages, configuration files, data) into a
 single portable unit called an image. When someone
 runs that image, they get a container that behaves
-identically to the environment in which you
-developed your analysis.
+identically to the environment in which the analysis
+was developed.
 
 Think of it like shipping a complete laboratory
 instead of just a lab notebook. The naive approach
-to sharing code is like sending someone your lab
-notes and hoping they have the same equipment,
+to sharing code is like sending someone a lab
+notebook and hoping they have the same equipment,
 reagents, and room temperature. Docker is like
 shipping the entire lab bench, pre-loaded with
-everything needed to replicate your experiment.
+everything needed to replicate the experiment.
 
 For R users specifically, Docker solves the problem
-of environment divergence. Your R version, your
-installed packages, your LaTeX distribution, your
-auxiliary files, and your data are all captured in
-the image. The recipient does not need to install
-anything except Docker itself.
+of environment divergence. The R version, installed
+packages, LaTeX distribution, auxiliary files, and
+data are all captured in the image. The recipient
+does not need to install anything except Docker
+itself.
 
 ## Core Concepts
 
@@ -168,7 +168,7 @@ and stored as a series of read-only layers.
 **Container**: A running instance of an image.
 Containers are ephemeral by default; data written
 inside a container is lost when it stops unless
-you use a volume mount.
+a volume mount is used.
 
 **Dockerfile**: A text file that defines how to
 build an image. Each instruction (`FROM`, `RUN`,
@@ -601,7 +601,7 @@ server <- function(input, output, session) {
 shinyApp(ui, server)
 ```
 
-The app runs flawlessly on your machine.
+The app runs flawlessly on the development machine.
 
 ## The Naive Approach and Its Errors
 
@@ -674,7 +674,7 @@ Key decisions:
   packages to ensure compilation of binary
   dependencies (`httpuv`, `openssl`).
 - **`rm -rf /srv/shiny-server/*`** removes default
-  sample apps, leaving only your application.
+  sample apps, leaving only the target application.
 - **`EXPOSE 3838`** documents the port that Shiny
   Server listens on (it does not publish the port;
   that requires `-p` at runtime).
@@ -684,8 +684,8 @@ Key decisions:
 
 ## Alternative: Single-File Approach
 
-For simpler applications, you can bypass Shiny
-Server and run the app directly with `Rscript`.
+For simpler applications, it is possible to bypass
+Shiny Server and run the app directly with `Rscript`.
 This uses the smaller `rocker/r-ver` base image.
 
 ```dockerfile
@@ -810,8 +810,8 @@ machine, the work is done.*
    side. Use `"$PWD/output"` or provide the full
    path explicitly.
 
-2. **Platform flag matters for Apple Silicon.** If
-   you build on an M1/M2/M3 Mac, the default
+2. **Platform flag matters for Apple Silicon.** When
+   building on an M1/M2/M3 Mac, the default
    architecture is `arm64`. Use
    `--platform=linux/amd64` to ensure the image
    runs on Intel-based Linux machines.
@@ -945,8 +945,8 @@ directory (typically `/var/lib/docker`).
   Silicon and Intel machines.
 - Running `docker build` without `--no-cache` may
   use stale cached layers if upstream packages have
-  been updated; add `--no-cache` when you need a
-  fully fresh build.
+  been updated; add `--no-cache` when a fully fresh
+  build is required.
 
 # Limitations
 
@@ -1029,20 +1029,19 @@ produces a blank browser tab. Docker addresses both
 failure modes by fixing the entire stack at build
 time.
 
-Main takeaways:
-
-- The naive approach produced eight distinct
-  environment errors for R Markdown and six for
-  Shiny before the output could be obtained.
-- Docker eliminates all errors by packaging the
-  complete environment into a single image.
-- Case A uses `rocker/verse` (R + tidyverse +
-  LaTeX) with volume mounts for PDF output.
-- Case B uses `rocker/shiny` (R + Shiny Server)
-  with port mapping for browser access.
-- The `host='0.0.0.0'` parameter and the `-p` flag
-  are the two settings most commonly missed when
-  Dockerizing Shiny applications.
+In conclusion, five points merit emphasis. First,
+the naive approach produced eight distinct
+environment errors for R Markdown and six for
+Shiny before the output could be obtained. Second,
+Docker eliminates all such errors by packaging the
+complete environment into a single image. Third,
+Case A uses `rocker/verse` (R + tidyverse + LaTeX)
+with volume mounts for PDF output. Fourth, Case B
+uses `rocker/shiny` (R + Shiny Server) with port
+mapping for browser access. Fifth, the
+`host='0.0.0.0'` parameter and the `-p` flag are
+the two settings most commonly missed when
+Dockerizing Shiny applications.
 
 # See Also
 
